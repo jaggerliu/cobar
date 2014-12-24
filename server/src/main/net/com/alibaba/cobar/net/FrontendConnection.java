@@ -262,6 +262,9 @@ public abstract class FrontendConnection extends AbstractConnection {
                 return;
             }
 
+			if (sql.endsWith(";")) {
+				sql = sql.substring(0, sql.length() - 1);
+			}
             // 执行查询
             queryHandler.query(sql);
         } else {

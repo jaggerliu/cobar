@@ -23,6 +23,8 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 
+import org.apache.log4j.Logger;
+
 import com.alibaba.cobar.CobarConfig;
 import com.alibaba.cobar.CobarServer;
 import com.alibaba.cobar.config.ErrorCode;
@@ -39,6 +41,8 @@ import com.alibaba.cobar.util.StringUtil;
  * @author <a href="mailto:shuo.qius@alibaba-inc.com">QIU Shuo</a>
  */
 public class SingleNodeHandler implements ResponseHandler, Terminatable {
+	private static final Logger LOGGER = Logger
+			.getLogger(SingleNodeHandler.class);
     private final RouteResultsetNode route;
     private final NonBlockingSession session;
     private byte packetId;
@@ -106,7 +110,7 @@ public class SingleNodeHandler implements ResponseHandler, Terminatable {
         if (conn == null) {
             CobarConfig conf = CobarServer.getInstance().getConfig();
             MySQLDataNode dn = conf.getDataNodes().get(route.getName());
-            dn.getConnection(this, null);
+            dn.getConnection(this, route);
         } else {
             conn.setRunning(true);
             session.getSource().getProcessor().getExecutor().execute(new Runnable() {
@@ -122,12 +126,12 @@ public class SingleNodeHandler implements ResponseHandler, Terminatable {
     public void connectionAcquired(final MySQLConnection conn) {
         conn.setRunning(true);
         session.bindConnection(route, conn);
-        session.getSource().getProcessor().getExecutor().execute(new Runnable() {
-            @Override
-            public void run() {
+//        session.getSource().getProcessor().getExecutor().execute(new Runnable() {
+//            @Override
+//            public void run() {
                 _execute(conn);
-            }
-        });
+//            }
+//        });
     }
 
     private void _execute(MySQLConnection conn) {
@@ -147,90 +151,103 @@ public class SingleNodeHandler implements ResponseHandler, Terminatable {
     }
 
     private void executeException(MySQLConnection c) {
-        c.setRunning(false);
-        endRunning();
-        session.clearConnections();
-        ErrorPacket err = new ErrorPacket();
-        err.packetId = ++packetId;
-        err.errno = ErrorCode.ER_YES;
-        err.message = StringUtil.encode("unknown backend charset: " + c.getCharset(), session.getSource().getCharset());
-        ServerConnection source = session.getSource();
-        source.write(err.write(buffer, source));
+        		ErrorPacket err = new ErrorPacket();
+		err.packetId = ++packetId;
+		err.errno = ErrorCode.ER_YES;
+		err.message = StringUtil.encode(
+				"unknown backend charset: " + c.getCharset(), session
+						.getSource().getCharset());
+
+		this.backConnectionErr(err, c);
     }
 
     @Override
     public void connectionError(Throwable e, MySQLConnection conn) {
-        if (!session.closeConnection(route)) {
-            conn.close();
-        }
+       		conn.setRunning(false);
+
         endRunning();
         ErrorPacket err = new ErrorPacket();
         err.packetId = ++packetId;
         err.errno = ErrorCode.ER_YES;
         err.message = StringUtil.encode(e.getMessage(), session.getSource().getCharset());
         ServerConnection source = session.getSource();
-        source.write(err.write(buffer, source));
+        source.write(err.write(allocBuffer(), source));
     }
 
     @Override
-    public void errorResponse(byte[] err, MySQLConnection conn) {
-        conn.setRunning(false);
-        if (conn.isAutocommit()) {
-            session.clearConnections();
-        }
-        endRunning();
-        session.getSource().write(err);
+    public void errorResponse(byte[] data, MySQLConnection conn) {
+        ErrorPacket err = new ErrorPacket();
+		err.read(data);
+		err.packetId = ++packetId;
+		backConnectionErr(err, conn);
     }
 
+	private void backConnectionErr(ErrorPacket errPkg, MySQLConnection conn) {
+		conn.setRunning(false);
+		endRunning();
+		session.releaseConnectionIfSafe(conn, LOGGER.isDebugEnabled());
+		ServerConnection source = session.getSource();
+		source.setTxInterrupt();
+		errPkg.write(source);
+	}
     @Override
     public void okResponse(byte[] data, MySQLConnection conn) {
-        boolean executeResponse = false;
-        try {
-            executeResponse = conn.syncAndExcute();
-        } catch (UnsupportedEncodingException e) {
-            executeException(conn);
-        }
-        if (executeResponse) {
-            conn.setRunning(false);
-            ServerConnection source = session.getSource();
-            if (source.isAutocommit()) {
-                session.clearConnections();
-            }
-            endRunning();
-            OkPacket ok = new OkPacket();
-            ok.read(data);
-            source.setLastInsertId(ok.insertId);
-            buffer = source.writeToBuffer(data, buffer);
-            source.write(buffer);
-        }
+       		boolean executeResponse;
+			try {
+				executeResponse = conn.syncAndExcute();
+				if (executeResponse) {
+					conn.setRunning(false);
+					session.releaseConnectionIfSafe(conn, LOGGER.isDebugEnabled());
+					endRunning();
+					ServerConnection source = session.getSource();
+					OkPacket ok = new OkPacket();
+					ok.read(data);
+
+					// ok.packetId = ++packetId;// OK_PACKET
+					source.setLastInsertId(ok.insertId);
+					ok.write(source);
+
+				}
+			} catch (UnsupportedEncodingException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
     }
 
     @Override
     public void rowEofResponse(byte[] eof, MySQLConnection conn) {
-        ServerConnection source = session.getSource();
-        conn.setRunning(false);
-        conn.recordSql(source.getHost(), source.getSchema(), route.getStatement());
-        if (source.isAutocommit()) {
-            session.clearConnections();
-        }
-        endRunning();
-        buffer = source.writeToBuffer(eof, buffer);
-        source.write(buffer);
+		ServerConnection source = session.getSource();
+		conn.setRunning(false);
+		conn.recordSql(source.getHost(), source.getSchema(),
+				route.getStatement());
+		session.releaseConnectionIfSafe(conn, LOGGER.isDebugEnabled());
+		endRunning();
+		eof[3] = ++packetId;
+		buffer = source.writeToBuffer(eof, allocBuffer());
+		source.write(buffer);
     }
 
+
+	private ByteBuffer allocBuffer() {
+		if (buffer == null) {
+			buffer = session.getSource().allocate();
+		}
+		return buffer;
+	}
     @Override
     public void fieldEofResponse(byte[] header, List<byte[]> fields, byte[] eof, MySQLConnection conn) {
-        ServerConnection source = session.getSource();
-        buffer = session.getSource().allocate();
-        ++packetId;
-        buffer = source.writeToBuffer(header, buffer);
-        for (int i = 0, len = fields.size(); i < len; ++i) {
-            ++packetId;
-            buffer = source.writeToBuffer(fields.get(i), buffer);
-        }
-        ++packetId;
-        buffer = source.writeToBuffer(eof, buffer);
-        source.write(buffer);
+
+		header[3] = ++packetId;
+		ServerConnection source = session.getSource();
+		buffer = source.writeToBuffer(header, allocBuffer());
+		for (int i = 0, len = fields.size(); i < len; ++i) {
+			byte[] field = fields.get(i);
+			field[3] = ++packetId;
+			buffer = source.writeToBuffer(field, buffer);
+		}
+		eof[3] = ++packetId;
+		buffer = source.writeToBuffer(eof, buffer);
+
     }
 
     @Override
@@ -239,4 +256,18 @@ public class SingleNodeHandler implements ResponseHandler, Terminatable {
         buffer = session.getSource().writeToBuffer(row, buffer);
     }
 
+
+	public void connectionClose(MySQLConnection conn, String reason) {
+		ErrorPacket err = new ErrorPacket();
+		err.packetId = ++packetId;
+		err.errno = ErrorCode.ER_YES;
+		err.message = StringUtil.encode(reason, session.getSource()
+				.getCharset());
+		this.backConnectionErr(err, conn);
+
+	}
+
+	public void clearResources() {
+
+	}
 }

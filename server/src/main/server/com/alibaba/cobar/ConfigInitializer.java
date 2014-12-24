@@ -35,7 +35,7 @@ import com.alibaba.cobar.config.model.SystemConfig;
 import com.alibaba.cobar.config.model.UserConfig;
 import com.alibaba.cobar.config.util.ConfigException;
 import com.alibaba.cobar.mysql.MySQLDataNode;
-import com.alibaba.cobar.mysql.MySQLDataSource;
+import com.alibaba.cobar.mysql.nio.MySQLConnectionPool;
 import com.alibaba.cobar.route.config.RouteRuleInitializer;
 import com.alibaba.cobar.util.SplitUtil;
 
@@ -150,13 +150,22 @@ public class ConfigInitializer {
         String[] dsNames = SplitUtil.split(dnc.getDataSource(), ',');
         checkDataSourceExists(dsNames);
         MySQLDataNode node = new MySQLDataNode(dnc);
-        MySQLDataSource[] dsList = new MySQLDataSource[dsNames.length];
+//        MySQLDataSource[] dsList = new MySQLDataSource[dsNames.length];
+//        int size = dnc.getPoolSize();
+//        for (int i = 0; i < dsList.length; i++) {
+//            DataSourceConfig dsc = dataSources.get(dsNames[i]);
+//            dsList[i] = new MySQLDataSource(node, i, dsc, size);
+//        }
+//        node.setSources(dsList);
+        
+
+        MySQLConnectionPool[] dsList = new MySQLConnectionPool[dsNames.length];
         int size = dnc.getPoolSize();
         for (int i = 0; i < dsList.length; i++) {
             DataSourceConfig dsc = dataSources.get(dsNames[i]);
-            dsList[i] = new MySQLDataSource(node, i, dsc, size);
+            dsList[i] = new MySQLConnectionPool(node, i, dsc, size);
         }
-        node.setSources(dsList);
+        node.setDataSources(dsList);
         return node;
     }
 

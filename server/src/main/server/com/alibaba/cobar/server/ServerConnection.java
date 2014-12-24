@@ -44,8 +44,8 @@ public class ServerConnection extends FrontendConnection {
     private volatile boolean autocommit;
     private volatile boolean txInterrupted;
     private long lastInsertId;
-    private BlockingSession session;
-    private NonBlockingSession session2;
+    //private BlockingSession session;
+    private NonBlockingSession session;
 
     public ServerConnection(SocketChannel channel) {
         super(channel);
@@ -95,21 +95,21 @@ public class ServerConnection extends FrontendConnection {
         }
     }
 
-    public BlockingSession getSession() {
+    public NonBlockingSession getSession() {
         return session;
     }
 
-    public void setSession(BlockingSession session) {
+    public void setSession(NonBlockingSession session) {
         this.session = session;
     }
 
-    public NonBlockingSession getSession2() {
-        return session2;
-    }
-
-    public void setSession2(NonBlockingSession session2) {
-        this.session2 = session2;
-    }
+//    public NonBlockingSession getSession2() {
+//        return session2;
+//    }
+//
+//    public void setSession2(NonBlockingSession session2) {
+//        this.session2 = session2;
+//    }
 
     @Override
     public void ping() {
@@ -122,6 +122,7 @@ public class ServerConnection extends FrontendConnection {
     }
 
     public void execute(String sql, int type) {
+
         // 状态检查
         if (txInterrupted) {
             writeErrMessage(ErrorCode.ER_YES, "Transaction error, need to rollback.");

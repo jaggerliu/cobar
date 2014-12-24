@@ -25,6 +25,8 @@ import com.alibaba.cobar.server.response.SelectLastInsertId;
 import com.alibaba.cobar.server.response.SelectUser;
 import com.alibaba.cobar.server.response.SelectVersion;
 import com.alibaba.cobar.server.response.SelectVersionComment;
+import com.alibaba.cobar.server.response.SessionIncrement;
+import com.alibaba.cobar.server.response.SessionIsolation;
 
 /**
  * @author xianmao.hexm
@@ -43,9 +45,15 @@ public final class SelectHandler {
         case ServerParseSelect.USER:
             SelectUser.response(c);
             break;
-        case ServerParseSelect.VERSION:
-            SelectVersion.response(c);
-            break;
+		case ServerParseSelect.VERSION:
+			SelectVersion.response(c);
+			break;
+		case ServerParseSelect.SESSION_INCREMENT:
+			SessionIncrement.response(c);
+			break;
+		case ServerParseSelect.SESSION_ISOLATION:
+			SessionIsolation.response(c);
+			break;
         case ServerParseSelect.LAST_INSERT_ID:
             // offset = ParseUtil.move(stmt, 0, "select".length());
             loop: for (; offset < stmt.length(); ++offset) {

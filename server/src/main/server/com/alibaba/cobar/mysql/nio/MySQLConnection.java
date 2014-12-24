@@ -47,6 +47,9 @@ import com.alibaba.cobar.util.TimeUtil;
 public class MySQLConnection extends BackendConnection {
     private static final Logger LOGGER = Logger.getLogger(MySQLConnection.class);
     private static final long CLIENT_FLAGS = initClientFlags();
+	private volatile String oldSchema;
+	private volatile boolean borrowed = false;
+	private volatile boolean modifiedSQLExecuted = false;
 
     private static long initClientFlags() {
         int flag = 0;
@@ -251,12 +254,26 @@ public class MySQLConnection extends BackendConnection {
         return isClosed() || isQuit.get();
     }
 
+	protected void sendQueryCmd(String query) {
+		CommandPacket packet = new CommandPacket();
+		packet.packetId = 0;
+		packet.command = MySQLPacket.COM_QUERY;
+		try {
+			packet.arg = query.getBytes(charset);
+		} catch (UnsupportedEncodingException e) {
+			throw new RuntimeException(e);
+		}
+		lastTime = TimeUtil.currentTimeMillis();
+		packet.write((BackendConnection) this);
+	}
     private static class StatusSync {
         private final RouteResultsetNode rrn;
         private final MySQLConnection conn;
+private CommandPacket schemaCmd;
         private CommandPacket charCmd;
         private CommandPacket isoCmd;
         private CommandPacket acCmd;
+private final String schema;
         private final int charIndex;
         private final int txIsolation;
         private final boolean autocommit;
@@ -266,6 +283,10 @@ public class MySQLConnection extends BackendConnection {
             this.conn = conn;
             this.rrn = rrn;
             this.charIndex = sc.getCharsetIndex();
+
+			this.schema = conn.schema;
+			this.schemaCmd = !schema.equals(conn.oldSchema) ? getChangeSchemaCommand(schema)
+					: null;
             this.charCmd = conn.charsetIndex != charIndex ? getCharsetCommand(charIndex) : null;
             this.txIsolation = sc.getTxIsolation();
             this.isoCmd = conn.txIsolation != txIsolation ? getTxIsolationCommand(txIsolation) : null;
@@ -295,6 +316,18 @@ public class MySQLConnection extends BackendConnection {
          */
         public boolean sync() {
             CommandPacket cmd;
+			if (schemaCmd != null) {
+				updater = new Runnable() {
+					@Override
+					public void run() {
+						conn.oldSchema = schema;
+					}
+				};
+				cmd = schemaCmd;
+				schemaCmd = null;
+				cmd.write( conn);
+				return true;
+			}
             if (charCmd != null) {
                 updater = new Runnable() {
                     @Override
@@ -336,15 +369,11 @@ public class MySQLConnection extends BackendConnection {
             return false;
         }
 
-        public void execute() throws UnsupportedEncodingException {
-            executed = true;
-            CommandPacket packet = new CommandPacket();
-            packet.packetId = 0;
-            packet.command = MySQLPacket.COM_QUERY;
-            packet.arg = rrn.getStatement().getBytes(conn.getCharset());
-            conn.lastTime = TimeUtil.currentTimeMillis();
-            packet.write(conn);
-        }
+		public void execute() {
+			executed = true;
+			conn.sendQueryCmd(rrn.getStatement());
+
+		}
 
         private static CommandPacket getTxIsolationCommand(int txIsolation) {
             switch (txIsolation) {
@@ -371,7 +400,16 @@ public class MySQLConnection extends BackendConnection {
             cmd.arg = s.toString().getBytes();
             return cmd;
         }
-    }
+		private static CommandPacket getChangeSchemaCommand(String schema) {
+			StringBuilder s = new StringBuilder();
+			s.append(schema);
+			CommandPacket cmd = new CommandPacket();
+			cmd.packetId = 0;
+			cmd.command = MySQLPacket.COM_INIT_DB;
+			cmd.arg = s.toString().getBytes();
+			return cmd;
+		}
+}
 
     /**
      * @return if synchronization finished and execute-sql has already been sent
@@ -448,19 +486,26 @@ public class MySQLConnection extends BackendConnection {
         case ErrorCode.ERR_PUT_WRITE_QUEUE:
             // QS_TODO
             break;
-        default:
-            close();
-            if (handler instanceof MySQLConnectionHandler) {
-                ((MySQLConnectionHandler) handler).connectionError(t);
-            }
+		case ErrorCode.ERR_CONNECT_SOCKET:
+			if (handler == null) {
+				return;
+			}
+			if (handler instanceof MySQLConnectionHandler) {
+				MySQLConnectionHandler theHandler = (MySQLConnectionHandler) handler;
+				theHandler.connectionError(t);
+			}
+			break;
         }
     }
 
     public boolean setResponseHandler(ResponseHandler queryHandler) {
         if (handler instanceof MySQLConnectionHandler) {
             ((MySQLConnectionHandler) handler).setResponseHandler(queryHandler);
-            return true;
-        }
+			return true;
+		} else if (queryHandler != null) {
+			LOGGER.warn("set not MySQLConnectionHandler "
+					+ queryHandler.getClass().getCanonicalName());
+		}
         return false;
     }
 

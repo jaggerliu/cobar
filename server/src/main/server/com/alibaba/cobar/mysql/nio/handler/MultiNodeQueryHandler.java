@@ -320,4 +320,21 @@ public class MultiNodeQueryHandler extends MultiNodeHandler {
         }
     }
 
+	public void clearResources() {
+		ByteBuffer buf;
+		lock.lock();
+		try {
+			buf = buffer;
+			if (buf != null) {
+				buffer = null;
+			}
+		} finally {
+			lock.unlock();
+		}
+		if (buf != null) {
+			session.getSource().recycle(buf);
+		}
+
+	}
+
 }

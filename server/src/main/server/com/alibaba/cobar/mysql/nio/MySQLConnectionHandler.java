@@ -18,6 +18,8 @@ package com.alibaba.cobar.mysql.nio;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.log4j.Logger;
+
 import com.alibaba.cobar.mysql.ByteUtil;
 import com.alibaba.cobar.mysql.nio.handler.ResponseHandler;
 import com.alibaba.cobar.net.handler.BackendAsyncHandler;
@@ -31,9 +33,11 @@ import com.alibaba.cobar.net.mysql.OkPacket;
  * @author xianmao.hexm 2012-4-12
  */
 public class MySQLConnectionHandler extends BackendAsyncHandler {
-    private static final int RESULT_STATUS_INIT = 0;
-    private static final int RESULT_STATUS_HEADER = 1;
-    private static final int RESULT_STATUS_FIELD_EOF = 2;
+	private static final Logger logger = Logger
+			.getLogger(MySQLConnectionHandler.class);
+	private static final int RESULT_STATUS_INIT = 0;
+	private static final int RESULT_STATUS_HEADER = 1;
+	private static final int RESULT_STATUS_FIELD_EOF = 2;
 
     private final MySQLConnection source;
     private volatile int resultStatus;
@@ -53,6 +57,13 @@ public class MySQLConnectionHandler extends BackendAsyncHandler {
     public void connectionError(Throwable e) {
         // connError = e;
         // handleQueue();
+		dataQueue.clear();
+		if (responseHandler != null) {
+			System.out.println(" responseHandler connectionError "
+					+ responseHandler.getClass().getName());
+			e.printStackTrace();
+			responseHandler.connectionError(e, source);
+		}
     }
 
     public MySQLConnection getSource() {
@@ -146,25 +157,40 @@ public class MySQLConnectionHandler extends BackendAsyncHandler {
         responseHandler.errorResponse(data, source);
     }
 
-    /**
-     * 字段数据包结束处理
-     */
-    private void handleFieldEofPacket(byte[] data) {
-        responseHandler.fieldEofResponse(header, fields, data, source);
-    }
+	/**
+	 * 字段数据包结束处理
+	 */
+	private void handleFieldEofPacket(byte[] data) {
+		if (responseHandler != null) {
+			responseHandler.fieldEofResponse(header, fields, data, source);
+		} else {
+			logger.warn("no handler bind in this con " + this + " client:"
+					+ source);
+		}
+	}
 
-    /**
-     * 行数据包处理
-     */
-    private void handleRowPacket(byte[] data) {
-        responseHandler.rowResponse(data, source);
-    }
+	/**
+	 * 行数据包处理
+	 */
+	private void handleRowPacket(byte[] data) {
+		if (responseHandler != null) {
+			responseHandler.rowResponse(data, source);
+		} else {
+			logger.warn("no handler bind in this con " + this + " client:"
+					+ source);
+		}
+	}
 
-    /**
-     * 行数据包结束处理
-     */
-    private void handleRowEofPacket(byte[] data) {
-        responseHandler.rowEofResponse(data, source);
-    }
+	/**
+	 * 行数据包结束处理
+	 */
+	private void handleRowEofPacket(byte[] data) {
+		if (responseHandler != null) {
+			responseHandler.rowEofResponse(data, source);
+		} else {
+			logger.warn("no handler bind in this con " + this + " client:"
+					+ source);
+		}
+	}
 
 }

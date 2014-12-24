@@ -38,8 +38,8 @@ public class ServerConnectionFactory extends FrontendConnectionFactory {
         c.setQueryHandler(new ServerQueryHandler(c));
         // c.setPrepareHandler(new ServerPrepareHandler(c)); TODO prepare
         c.setTxIsolation(sys.getTxIsolation());
-        c.setSession(new BlockingSession(c));
-        c.setSession2(new NonBlockingSession(c));
+        c.setSession(new NonBlockingSession(c));
+        //c.setSession2(new NonBlockingSession(c));
         return c;
     }
 

@@ -26,6 +26,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
+import org.apache.log4j.Logger;
+
 import com.alibaba.cobar.config.ErrorCode;
 import com.alibaba.cobar.net.buffer.BufferPool;
 import com.alibaba.cobar.net.buffer.BufferQueue;
@@ -35,6 +37,8 @@ import com.alibaba.cobar.util.TimeUtil;
  * @author xianmao.hexm
  */
 public abstract class AbstractConnection implements NIOConnection {
+	protected static final Logger LOGGER = Logger
+			.getLogger(AbstractConnection.class);
     private static final int OP_NOT_READ = ~SelectionKey.OP_READ;
     private static final int OP_NOT_WRITE = ~SelectionKey.OP_WRITE;
 
@@ -145,6 +149,7 @@ public abstract class AbstractConnection implements NIOConnection {
     @Override
     public void register(Selector selector) throws IOException {
         try {
+            LOGGER.info(" test register 1 ok!");
             processKey = channel.register(selector, SelectionKey.OP_READ, this);
             isRegistered = true;
         } finally {
@@ -156,18 +161,22 @@ public abstract class AbstractConnection implements NIOConnection {
 
     @Override
     public void read() throws IOException {
+        LOGGER.info(" test read 1 ok!");
         ByteBuffer buffer = this.readBuffer;
         int got = channel.read(buffer);
         lastReadTime = TimeUtil.currentTimeMillis();
         if (got < 0) {
             throw new EOFException();
-        }
+        } else if (got == 0) {
+			return;
+		}
         netInBytes += got;
         processor.addNetInBytes(got);
 
         // 处理数据
         int offset = readBufferOffset, length = 0, position = buffer.position();
         for (;;) {
+            LOGGER.info(" test read 2 ok!");
             length = getPacketLength(buffer, offset);
             if (length == -1) {// 未达到可计算数据包长度的数据
                 if (!buffer.hasRemaining()) {
@@ -180,6 +189,7 @@ public abstract class AbstractConnection implements NIOConnection {
                 buffer.position(offset);
                 byte[] data = new byte[length];
                 buffer.get(data, 0, length);
+                LOGGER.info(" test read 3 ok!");
                 handle(data);
 
                 // 设置偏移量
@@ -202,6 +212,7 @@ public abstract class AbstractConnection implements NIOConnection {
                 break;
             }
         }
+        LOGGER.info(" test read 4 ok!");
     }
 
     public void write(byte[] data) {
@@ -218,7 +229,13 @@ public abstract class AbstractConnection implements NIOConnection {
         }
         if (isRegistered) {
             try {
-                writeQueue.put(buffer);
+				if (buffer.position() == 0) {
+					LOGGER.info("empty buffer write to connection !!! "
+							+ this);
+					return;
+				}
+				LOGGER.info("writeQueue "+ this);
+				writeQueue.put(buffer);
             } catch (InterruptedException e) {
                 error(ErrorCode.ERR_PUT_WRITE_QUEUE, e);
                 return;
@@ -232,17 +249,21 @@ public abstract class AbstractConnection implements NIOConnection {
 
     @Override
     public void writeByQueue() throws IOException {
+        LOGGER.info(" test writeByQueue 0!");
         if (isClosed.get()) {
             return;
         }
+        LOGGER.info(" test writeByQueue 1!");
         final ReentrantLock lock = this.writeLock;
         lock.lock();
         try {
             // 满足以下两个条件时，切换到基于事件的写操作。
             // 1.当前key对写事件不该兴趣。
             // 2.write0()返回false。
+            LOGGER.info(" test writeByQueue 2!" + (processKey.interestOps() & SelectionKey.OP_WRITE));
             if ((processKey.interestOps() & SelectionKey.OP_WRITE) == 0 && !write0()) {
-                enableWrite();
+                    enableWrite();
+                    LOGGER.info(" test writeByQueue 3!");
             }
         } finally {
             lock.unlock();
@@ -254,6 +275,7 @@ public abstract class AbstractConnection implements NIOConnection {
         if (isClosed.get()) {
             return;
         }
+        LOGGER.info(" test writeByEvent ok!");
         final ReentrantLock lock = this.writeLock;
         lock.lock();
         try {
@@ -273,6 +295,7 @@ public abstract class AbstractConnection implements NIOConnection {
      */
     public void enableRead() {
         final Lock lock = this.keyLock;
+        LOGGER.info(" test enableRead ok!");
         lock.lock();
         try {
             SelectionKey key = this.processKey;
@@ -288,6 +311,7 @@ public abstract class AbstractConnection implements NIOConnection {
      */
     public void disableRead() {
         final Lock lock = this.keyLock;
+        LOGGER.info(" test disableRead ok!");
         lock.lock();
         try {
             SelectionKey key = this.processKey;
@@ -303,6 +327,7 @@ public abstract class AbstractConnection implements NIOConnection {
     public ByteBuffer checkWriteBuffer(ByteBuffer buffer, int capacity) {
         if (capacity > buffer.remaining()) {
             write(buffer);
+            LOGGER.info(" test checkWriteBuffer ok!");
             return processor.getBufferPool().allocate();
         } else {
             return buffer;
@@ -313,6 +338,7 @@ public abstract class AbstractConnection implements NIOConnection {
      * 把数据写到给定的缓存中，如果满了则提交当前缓存并申请新的缓存。
      */
     public ByteBuffer writeToBuffer(byte[] src, ByteBuffer buffer) {
+        LOGGER.info(" test writeToBuffer ok!");
         int offset = 0;
         int length = src.length;
         int remaining = buffer.remaining();
@@ -335,6 +361,7 @@ public abstract class AbstractConnection implements NIOConnection {
 
     @Override
     public boolean close() {
+        LOGGER.info(" test close ok!");
         if (isClosed.get()) {
             return false;
         } else {
@@ -359,6 +386,7 @@ public abstract class AbstractConnection implements NIOConnection {
      * 清理遗留资源
      */
     protected void cleanup() {
+        LOGGER.info(" test cleanup ok!");
         BufferPool pool = processor.getBufferPool();
         ByteBuffer buffer = null;
 
@@ -379,6 +407,7 @@ public abstract class AbstractConnection implements NIOConnection {
      * 获取数据包长度，默认是MySQL数据包，其他数据包重载此方法。
      */
     protected int getPacketLength(ByteBuffer buffer, int offset) {
+        LOGGER.info(" test getPacketLength ok!");
         if (buffer.position() < offset + packetHeaderSize) {
             return -1;
         } else {
@@ -394,6 +423,7 @@ public abstract class AbstractConnection implements NIOConnection {
      */
     private ByteBuffer checkReadBuffer(ByteBuffer buffer, int offset, int position) {
         // 当偏移量为0时需要扩容，否则移动数据至偏移量为0的位置。
+        LOGGER.info(" test checkReadBuffer ok!");
         if (offset == 0) {
             if (buffer.capacity() >= maxPacketSize) {
                 throw new IllegalArgumentException("Packet size over the limit.");
@@ -417,45 +447,68 @@ public abstract class AbstractConnection implements NIOConnection {
 
     private boolean write0() throws IOException {
         // 检查是否有遗留数据未写出
+        LOGGER.info(" test write0 ok!");
+		int written = 0;
         ByteBuffer buffer = writeQueue.attachment();
         if (buffer != null) {
-            int written = channel.write(buffer);
-            if (written > 0) {
-                netOutBytes += written;
-                processor.addNetOutBytes(written);
-            }
-            lastWriteTime = TimeUtil.currentTimeMillis();
+
+            LOGGER.info(" test write0 1 ok!");
+			while (buffer.hasRemaining()) {
+				written = channel.write(buffer);
+				if (written > 0) {
+					netOutBytes += written;
+					processor.addNetOutBytes(written);
+					lastWriteTime = TimeUtil.currentTimeMillis();
+				}else {
+					break;
+				}
+                LOGGER.info(" test write0 while 1 ok!" + this);
+			}
             if (buffer.hasRemaining()) {
                 writeAttempts++;
                 return false;
             } else {
+                LOGGER.info(" test write0 2 ok!");
                 writeQueue.attach(null);
                 processor.getBufferPool().recycle(buffer);
             }
         }
         // 写出发送队列中的数据块
         if ((buffer = writeQueue.poll()) != null) {
+            LOGGER.info(" test write0 3 ok!");
             // 如果是一块未使用过的buffer，则执行关闭连接。
             if (buffer.position() == 0) {
                 processor.getBufferPool().recycle(buffer);
-                close();
-                return true;
+                LOGGER.info(" test write0 4 ok!" + this);
+                //close();
+              return true;
             }
             buffer.flip();
-            int written = channel.write(buffer);
-            if (written > 0) {
-                netOutBytes += written;
-                processor.addNetOutBytes(written);
-            }
+
+			while (buffer.hasRemaining()) {
+				written = channel.write(buffer);
+				if (written > 0) {
+					netOutBytes += written;
+					processor.addNetOutBytes(written);
+					lastWriteTime = TimeUtil.currentTimeMillis();
+				} else {
+					break;
+				}
+                LOGGER.info(" test write0 while 2 ok!" + this);
+			}
+
             lastWriteTime = TimeUtil.currentTimeMillis();
             if (buffer.hasRemaining()) {
                 writeQueue.attach(buffer);
                 writeAttempts++;
+                LOGGER.info(" test write0 5 ok!" + this);
                 return false;
             } else {
                 processor.getBufferPool().recycle(buffer);
             }
         }
+        
+        LOGGER.info(" test write0 end ok!");
         return true;
     }
 
@@ -463,6 +516,7 @@ public abstract class AbstractConnection implements NIOConnection {
      * 打开写事件
      */
     private void enableWrite() {
+        LOGGER.info(" test enableWrite ok!");
         final Lock lock = this.keyLock;
         lock.lock();
         try {
@@ -478,6 +532,7 @@ public abstract class AbstractConnection implements NIOConnection {
      * 关闭写事件
      */
     private void disableWrite() {
+        LOGGER.info(" test disableWrite ok!");
         final Lock lock = this.keyLock;
         lock.lock();
         try {
@@ -489,6 +544,7 @@ public abstract class AbstractConnection implements NIOConnection {
     }
 
     private void clearSelectionKey() {
+        LOGGER.info(" test clearSelectionKey ok!");
         final Lock lock = this.keyLock;
         lock.lock();
         try {
@@ -503,6 +559,7 @@ public abstract class AbstractConnection implements NIOConnection {
     }
 
     private boolean closeSocket() {
+        LOGGER.info(" test closeSocket ok!");
         clearSelectionKey();
         SocketChannel channel = this.channel;
         if (channel != null) {

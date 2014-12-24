@@ -21,6 +21,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.log4j.Logger;
@@ -30,8 +31,11 @@ import com.alibaba.cobar.config.model.DataNodeConfig;
 import com.alibaba.cobar.config.util.ConfigException;
 import com.alibaba.cobar.heartbeat.MySQLHeartbeat;
 import com.alibaba.cobar.mysql.bio.Channel;
+import com.alibaba.cobar.mysql.nio.MySQLConnection;
 import com.alibaba.cobar.mysql.nio.MySQLConnectionPool;
+import com.alibaba.cobar.mysql.nio.handler.GetConnectionHandler;
 import com.alibaba.cobar.mysql.nio.handler.ResponseHandler;
+import com.alibaba.cobar.net.BackendConnection;
 import com.alibaba.cobar.parser.ast.expression.primary.PlaceHolder;
 import com.alibaba.cobar.parser.ast.stmt.SQLStatement;
 import com.alibaba.cobar.parser.recognizer.SQLParserDelegate;
@@ -73,9 +77,9 @@ public final class MySQLDataNode {
             index = 0;
         }
         int active = -1;
-        for (int i = 0; i < sources.length; i++) {
+        for (int i = 0; i < dataSources.length; i++) {
             int j = loop(i + index);
-            if (initSource(sources[j], size)) {
+            if (initSource(size,dataSources[j])) {
                 active = j;
                 break;
             }
@@ -90,6 +94,7 @@ public final class MySQLDataNode {
             s.append(Alarms.DEFAULT).append(name).append(" init failure");
             ALARM.error(s.toString());
         }
+    	initSuccess = true;
     }
 
     private void setHeartbeat(String heartbeat) {
@@ -261,17 +266,23 @@ public final class MySQLDataNode {
         return false;
     }
 
-    /**
-     * 空闲检查
-     */
+//    /**
+//     * 空闲检查
+//     */
+//    public void idleCheck() {
+//        for (MySQLDataSource ds : sources) {
+//            if (ds != null) {
+//                ds.idleCheck(config.getIdleTimeout());
+//            }
+//        }
+//    }
     public void idleCheck() {
-        for (MySQLDataSource ds : sources) {
-            if (ds != null) {
-                ds.idleCheck(config.getIdleTimeout());
-            }
-        }
-    }
-
+      for (MySQLConnectionPool  pool : dataSources) {
+          if (pool != null) {
+        	  pool.idleCheck(config.getIdleTimeout());
+          }
+      }
+  }
     public MySQLHeartbeat getHeartbeat() {
         MySQLDataSource source = this.getSource();
         if (source != null) {
@@ -342,13 +353,52 @@ public final class MySQLDataNode {
     }
 
     private int loop(int i) {
-        return i < sources.length ? i : (i - sources.length);
+        return i < dataSources.length ? i : (i - dataSources.length);
     }
+
+//    private boolean checkIndex(int i) {
+//        return i >= 0 && i < sources.length;
+//    }
 
     private boolean checkIndex(int i) {
-        return i >= 0 && i < sources.length;
+        return i >= 0 && i < dataSources.length;
     }
 
+	private boolean initSource(int index, MySQLConnectionPool ds) {
+		int initSize = 10;
+		LOGGER.info("init backend myqsl source ,create connections total "
+				+ initSize + " for " + ds.getName() + " index :" + index);
+		CopyOnWriteArrayList<MySQLConnection> list = new CopyOnWriteArrayList<MySQLConnection>();
+		GetConnectionHandler getConHandler = new GetConnectionHandler(list,
+				initSize);
+		// long start=System.currentTimeMillis();
+		// long timeOut=start+5000*1000L;
+
+		for (int i = 0; i < initSize; i++) {
+			try {
+				ds.getConnection( getConHandler, null);
+			} catch (Exception e) {
+				LOGGER.warn(getMessage(index, " init connection error."), e);
+			}
+		}
+		long timeOut = System.currentTimeMillis() + 60 * 1000;
+
+		// waiting for finish
+		while (!getConHandler.finished()
+				&& (System.currentTimeMillis() < timeOut)) {
+			try {
+				Thread.sleep(200);
+
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+		LOGGER.info("init result :" + getConHandler.getStatusInfo());
+		for (MySQLConnection c : list) {
+			c.release();
+		}
+		return !list.isEmpty();
+	}
     private boolean initSource(MySQLDataSource ds, int size) {
         boolean success = true;
         Channel[] list = new Channel[size < ds.size() ? size : ds.size()];
@@ -374,6 +424,7 @@ public final class MySQLDataNode {
         return success;
     }
 
+    
     private String getMessage(int index, String info) {
         return new StringBuilder().append(name).append(':').append(index).append(info).toString();
     }

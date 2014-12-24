@@ -92,17 +92,22 @@ public final class NIOReactor {
                     try {
                         for (SelectionKey key : keys) {
                             Object att = key.attachment();
+                            LOGGER.info(" test key  ok!"+att);
                             if (att != null && key.isValid()) {
                                 int readyOps = key.readyOps();
                                 if ((readyOps & SelectionKey.OP_READ) != 0) {
                                     read((NIOConnection) att);
-                                } else if ((readyOps & SelectionKey.OP_WRITE) != 0) {
-                                    write((NIOConnection) att);
+                                    LOGGER.info(" test read  ok!");
+//                                } else if ((readyOps & SelectionKey.OP_WRITE) != 0) {
+//                                    write((NIOConnection) att);
+//                                    LOGGER.info(" test write  ok!");
                                 } else {
                                     key.cancel();
+                                    LOGGER.info(" test cancel 1  ok!");
                                 }
                             } else {
                                 key.cancel();
+                                LOGGER.info(" test cancel 2 ok!");
                             }
                         }
                     } finally {
@@ -119,6 +124,7 @@ public final class NIOReactor {
             while ((c = registerQueue.poll()) != null) {
                 try {
                     c.register(selector);
+                    LOGGER.info(" test register ok!");
                 } catch (Throwable e) {
                     c.error(ErrorCode.ERR_REGISTER, e);
                 }
@@ -129,6 +135,7 @@ public final class NIOReactor {
             try {
                 c.read();
             } catch (Throwable e) {
+            	c.close();
                 c.error(ErrorCode.ERR_READ, e);
             }
         }
@@ -136,6 +143,7 @@ public final class NIOReactor {
         private void write(NIOConnection c) {
             try {
                 c.writeByEvent();
+                LOGGER.info(" test writeByEvent ok!");
             } catch (Throwable e) {
                 c.error(ErrorCode.ERR_WRITE_BY_EVENT, e);
             }
@@ -156,6 +164,7 @@ public final class NIOReactor {
                 try {
                     if ((c = writeQueue.take()) != null) {
                         write(c);
+                        LOGGER.info(" test write w ok!");
                     }
                 } catch (Throwable e) {
                     LOGGER.warn(name, e);
@@ -166,7 +175,9 @@ public final class NIOReactor {
         private void write(NIOConnection c) {
             try {
                 c.writeByQueue();
+                LOGGER.info(" test writeByQueue w ok!");
             } catch (Throwable e) {
+            	c.close();
                 c.error(ErrorCode.ERR_WRITE_BY_QUEUE, e);
             }
         }

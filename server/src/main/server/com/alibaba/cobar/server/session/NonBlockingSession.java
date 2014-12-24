@@ -108,14 +108,24 @@ public class NonBlockingSession implements Session {
 
         if (nodes.length == 1) {
             singleNodeHandler = new SingleNodeHandler(nodes[0], this);
-            // singleNodeHandler.execute();
+             try {
+				singleNodeHandler.execute();
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
         } else {
             boolean autocommit = source.isAutocommit();
             if (autocommit && isModifySQL(type)) {
                 autocommit = false;
             }
             multiNodeHandler = new MultiNodeQueryHandler(nodes, autocommit, this);
-            // multiNodeHandler.execute();
+             try {
+				multiNodeHandler.execute();
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
         }
     }
 
@@ -336,4 +346,52 @@ public class NonBlockingSession implements Session {
         }
     }
 
+	public void clearResources() {
+		if (LOGGER.isDebugEnabled()) {
+			LOGGER.debug("clear session resources " + this);
+		}
+		this.releaseConnections();
+		if (this.singleNodeHandler != null) {
+			singleNodeHandler.clearResources();
+		}
+		if (this.multiNodeHandler != null) {
+			multiNodeHandler.clearResources();
+		}
+	}
+	
+
+	public void releaseConnectionIfSafe(MySQLConnection conn, boolean debug) {
+		RouteResultsetNode node = (RouteResultsetNode) conn.getAttachment();
+
+		if (node != null) {
+			if (this.source.isAutocommit() ) {
+				releaseConnection((RouteResultsetNode) conn.getAttachment(),
+						LOGGER.isDebugEnabled());
+			}
+		}
+	}
+
+	public void releaseConnection(RouteResultsetNode rrn, boolean debug) {
+
+		MySQLConnection c = target.remove(rrn);
+		if (c != null) {
+			if (debug) {
+				LOGGER.debug("relase connection " + c);
+			}
+			if (c.getAttachment() != null) {
+				c.setAttachment(null);
+			}
+			if (c.isRunning()) {
+				LOGGER.warn("close running connection is found " + c);
+				c.close();
+			} else if (!c.isClosedOrQuit()) {
+				if (c.isAutocommit()) {
+					c.release();
+				} else {
+					c.setResponseHandler(new RollbackReleaseHandler());
+					c.rollback();
+				}
+			}
+		}
+	}
 }

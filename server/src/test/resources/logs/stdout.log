@@ -1,0 +1,29 @@
+11:24:12,211 INFO  ===============================================
+11:24:12,212 INFO  Cobar is ready to startup ...
+11:24:12,212 INFO  Startup processors ...
+11:24:13,670 INFO  Startup connector ...
+11:24:13,676 INFO  Initialize dataNodes ...
+11:24:13,787 INFO  test202_dn2:0 init success
+11:24:13,792 INFO  test202_dn1:0 init success
+11:24:13,797 INFO  test202_dn3:0 init success
+11:24:13,811 INFO  test204_dn3:0 init success
+11:24:13,815 INFO  test204_dn1:0 init success
+11:24:14,183 INFO  test203_dn1:0 init success
+11:24:14,188 INFO  test204_dn2:0 init success
+11:24:14,193 INFO  test203_dn2:0 init success
+11:24:14,217 INFO  CobarManager is started and listening on 9066
+11:24:14,230 INFO  CobarServer is started and listening on 8066
+11:24:14,231 INFO  ===============================================
+11:24:43,106 INFO  ===============================================
+11:24:43,106 INFO  Cobar is ready to startup ...
+11:24:43,107 INFO  Startup processors ...
+11:24:44,329 INFO  Startup connector ...
+11:24:44,333 INFO  Initialize dataNodes ...
+11:24:44,365 INFO  test202_dn2:0 init success
+11:24:44,377 INFO  test202_dn1:0 init success
+11:24:44,382 INFO  test202_dn3:0 init success
+11:24:44,386 INFO  test204_dn3:0 init success
+11:24:44,391 INFO  test204_dn1:0 init success
+11:24:44,396 INFO  test203_dn1:0 init success
+11:24:44,401 INFO  test204_dn2:0 init success
+11:24:44,405 INFO  test203_dn2:0 init success

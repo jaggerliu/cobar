@@ -19,10 +19,16 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
+import org.apache.log4j.Logger;
+
+import com.alibaba.cobar.net.NIOReactor;
+
 /**
  * @author xianmao.hexm
  */
 public final class BufferQueue {
+
+    private static final Logger LOGGER = Logger.getLogger(BufferQueue.class);
 
     private int takeIndex;
     private int putIndex;
@@ -64,6 +70,7 @@ public final class BufferQueue {
             try {
                 while (count == items.length) {
                     notFull.await();
+                    LOGGER.info(" test await  !");
                 }
             } catch (InterruptedException ie) {
                 notFull.signal();

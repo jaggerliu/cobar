@@ -108,7 +108,9 @@ public final class BufferPool {
     }
 
     private ByteBuffer create(int size) {
-        return ByteBuffer.allocate(size);
+
+		return ByteBuffer.allocateDirect(size);
+
     }
 
 }

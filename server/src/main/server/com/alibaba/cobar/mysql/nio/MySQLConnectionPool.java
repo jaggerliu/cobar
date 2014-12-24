@@ -174,4 +174,27 @@ public class MySQLConnectionPool {
         return config;
     }
 
+	public int getSize() {
+		return size;
+	}
+
+	public void idleCheck(long timeout) {
+		final ReentrantLock lock = this.lock;
+		lock.lock();
+		try {
+			final MySQLConnection[] items = this.items;
+			long time = TimeUtil.currentTimeMillis() - timeout;
+			for (int i = 0; i < items.length; i++) {
+				MySQLConnection c = items[i];
+				if (c != null && time > c.getLastTime()) {
+
+					c.close();
+					items[i] = null;
+				}
+			}
+		} finally {
+			lock.unlock();
+		}
+	}
+
 }
